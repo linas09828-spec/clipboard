@@ -1,0 +1,12 @@
+name = "clipboard"
+main = "clipboard.js"
+compatibility_date = "2025-01-01"
+
+# ↓↓↓ 这两处改成你自己的，改完 push 自动部署 ↓↓↓
+[[kv_namespaces]]
+binding = "CLIP_KV"
+id = "把KV命名空间ID粘到这里"
+
+[[r2_buckets]]
+binding = "CLIP_R2"
+bucket_name = "把R2存储桶名写到这里"

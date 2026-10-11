@@ -6,11 +6,9 @@
  * 2. 左侧 KV → 创建命名空间（名字如 clipboard）
  * 3. 回到这个 Worker → 设置 → 绑定 → 添加绑定 → KV 命名空间 → 变量名填 CLIP_KV → 选刚建的命名空间 → 保存
  * 4. 设置 → 变量和机密 → 添加机密 PASSWORD（登录密码）
- * 5.（文件功能需要）R2 有存储桶的话直接复用，没有就新建一个 → 回到这个 Worker → 设置 → 绑定 → 添加绑定 → R2 存储桶 → 变量名填 CLIP_R2 → 选存储桶 → 保存
- * 6.（可选）设置 → 域和路由 → 绑定自定义域名
+ * 5.（可选）设置 → 域和路由 → 绑定自定义域名
  *
  * 用法：电脑上粘贴文字点发送，手机上打开就是最新的一条，点复制就行
- * 文件：选文件点上传，手机上点下载；文字和文件混排，新的在前
  */
 
 const GATE_PASSWORD = ""; // 也可直接填密码；推荐用 Cloudflare 后台的 PASSWORD 机密
@@ -72,7 +70,6 @@ button{cursor:pointer}
 .clip .text{font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-all;color:#eaf3e4;max-height:120px;overflow:hidden}
 .clip .text.full{max-height:none}
 .clip .ops{display:flex;gap:8px;margin-top:10px}
-.abtn{display:inline-block;text-decoration:none}
 .empty{text-align:center;color:#5b7a64;padding:40px;font-size:14px}
 </style></head><body>
 <header><h1>📋 跨设备剪贴板</h1><p>电脑复制 · 手机粘贴</p></header>
@@ -85,14 +82,6 @@ button{cursor:pointer}
 <span id="status"></span>
 </div>
 </div>
-<div class="sendbox">
-<div style="font-size:14px;margin-bottom:10px;color:#cdea44">📎 文件互传 <span style="font-size:12px;color:#8aa892">建议100MB以内</span></div>
-<div class="row">
-<input type="file" id="fileinput" style="flex:1;color:#8aa892;font-size:13px">
-<button class="btn" id="upbtn" onclick="uploadFile()">上传</button>
-</div>
-<div id="upbarwrap" style="display:none;height:6px;background:#0a1410;border-radius:3px;margin-top:10px;overflow:hidden"><div id="upbar" style="height:100%;width:0;background:#cdea44"></div></div>
-</div>
 <div id="list"></div>
 </div>
 <script>
@@ -100,7 +89,6 @@ var clipsData={};
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
 function setStatus(t){document.getElementById("status").textContent=t;}
 function fmtTime(t){return new Date(t).toLocaleString("zh-CN",{hour12:false});}
-function fmtSize(n){n=Number(n)||0;if(n<1024)return n+" B";if(n<1048576)return (n/1024).toFixed(1)+" KB";if(n<1073741824)return (n/1048576).toFixed(1)+" MB";return (n/1073741824).toFixed(2)+" GB";}
 async function api(p,opt){
   var r=await fetch(p,opt);var d=await r.json().catch(function(){return {};});
   if(!r.ok)throw new Error(d.msg||("HTTP "+r.status));return d;
@@ -108,17 +96,10 @@ async function api(p,opt){
 async function loadClips(silent){
   try{
     var d=await api("/api/clips");
-    d.list.forEach(function(c){if(c.kind!=="file")clipsData[c.id]=c.text;});
+    d.list.forEach(function(c){clipsData[c.id]=c.text;});
     var el=document.getElementById("list");
     if(!d.list.length){el.innerHTML='<div class="empty">还没有内容，在上面粘贴一条吧</div>';return;}
     el.innerHTML=d.list.map(function(c){
-      if(c.kind==="file"){
-        return '<div class="clip">'
-          +'<div class="meta"><span class="time">📎 '+esc(fmtTime(c.t))+' · '+esc(fmtSize(c.size))+'</span></div>'
-          +'<div class="text">'+esc(c.name)+'</div>'
-          +'<div class="ops"><a class="ghost abtn" href="/api/dl?id='+c.id+'">⬇ 下载</a>'
-          +'<button class="ghost" data-id="'+c.id+'" data-kind="file" onclick="delClip(this)">🗑 删除</button></div></div>';
-      }
       var preview=c.text.length>160;
       return '<div class="clip">'
         +'<div class="meta"><span class="time">'+esc(fmtTime(c.t))+'</span>'
@@ -151,30 +132,9 @@ function copyClip(btn){
 }
 async function delClip(btn){
   var id=btn.getAttribute("data-id");
-  var kind=btn.getAttribute("data-kind")||"text";
   if(!confirm("删掉这条？"))return;
-  try{await api("/api/clip?id="+encodeURIComponent(id)+"&kind="+kind,{method:"DELETE"});delete clipsData[id];loadClips(true);}
+  try{await api("/api/clip?id="+encodeURIComponent(id),{method:"DELETE"});delete clipsData[id];loadClips(true);}
   catch(e){setStatus("❌ 删除失败："+e.message);}
-}
-function uploadFile(){
-  var inp=document.getElementById("fileinput");
-  if(!inp.files||!inp.files.length){setStatus("先选个文件");return;}
-  var f=inp.files[0];
-  var fd=new FormData();fd.append("file",f);
-  var xhr=new XMLHttpRequest();
-  var wrap=document.getElementById("upbarwrap"),bar=document.getElementById("upbar");
-  var btn=document.getElementById("upbtn");btn.disabled=true;
-  wrap.style.display="block";bar.style.width="0%";
-  xhr.open("POST","/api/file",true);
-  xhr.upload.onprogress=function(e){if(e.lengthComputable){var p=Math.round(e.loaded/e.total*100);bar.style.width=p+"%";setStatus("上传中 "+p+"%");}};
-  xhr.onload=function(){
-    wrap.style.display="none";btn.disabled=false;
-    var d={};try{d=JSON.parse(xhr.responseText);}catch(e){}
-    if(xhr.status===200&&d.ok){inp.value="";setStatus("✅ 已上传");loadClips(true);}
-    else setStatus("❌ 上传失败："+(d.msg||("HTTP "+xhr.status)));
-  };
-  xhr.onerror=function(){wrap.style.display="none";btn.disabled=false;setStatus("❌ 上传失败：网络错误");};
-  xhr.send(fd);
 }
 async function sendClip(){
   var ta=document.getElementById("input");
@@ -190,24 +150,6 @@ async function sendClip(){
 loadClips();
 setInterval(function(){loadClips(true);},5000);
 </script></body></html>`;
-
-async function pruneOld(kv, r2) {
-  const [lc, lf] = await Promise.all([kv.list({ prefix: "c:", limit: 1000 }), kv.list({ prefix: "f:", limit: 1000 })]);
-  const all = [...lc.keys.map((k) => k.name), ...lf.keys.map((k) => k.name)].sort((a, b) =>
-    a.slice(2) < b.slice(2) ? -1 : a.slice(2) > b.slice(2) ? 1 : 0
-  );
-  if (all.length <= 200) return;
-  const olds = all.slice(0, all.length - 200);
-  await Promise.all(
-    olds.map(async (k) => {
-      if (k.startsWith("f:") && r2) {
-        const meta = await kv.get(k, "json");
-        if (meta && meta.r2key) await r2.delete(meta.r2key).catch(() => {});
-      }
-      await kv.delete(k);
-    })
-  );
-}
 
 export default {
   async fetch(request, env) {
@@ -242,75 +184,36 @@ export default {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
-    // ---- 列表（文字+文件混排，新的在前） ----
+    // ---- 列表（新的在前） ----
     if (url.pathname === "/api/clips") {
-      const [lc, lf] = await Promise.all([kv.list({ prefix: "c:", limit: 500 }), kv.list({ prefix: "f:", limit: 500 })]);
-      const keys = [...lc.keys.map((k) => ({ key: k.name, kind: "text" })), ...lf.keys.map((k) => ({ key: k.name, kind: "file" }))];
+      const l = await kv.list({ prefix: "c:", limit: 500 });
+      const keys = l.keys.map((k) => k.name).sort().reverse().slice(0, 50);
       const items = await Promise.all(
-        keys.map(async ({ key, kind }) => {
-          const v = await kv.get(key, "json");
-          if (!v) return null;
-          if (kind === "text") return { kind, id: key.slice(2), t: v.t, text: v.text };
-          return { kind, id: key.slice(2), t: v.t, name: v.name, size: v.size, type: v.type };
+        keys.map(async (k) => {
+          const v = await kv.get(k, "json");
+          return v ? { id: k.slice(2), t: v.t, text: v.text } : null;
         })
       );
-      const list = items.filter(Boolean).sort((a, b) => b.t - a.t).slice(0, 50);
-      return json({ ok: true, list });
+      return json({ ok: true, list: items.filter(Boolean) });
     }
-    // ---- 新增文字 ----
+    // ---- 新增 ----
     if (url.pathname === "/api/clip" && request.method === "POST") {
       const body = await request.json().catch(() => ({}));
       const text = (body.text || "").toString().slice(0, 100000);
       if (!text.trim()) return json({ ok: false, msg: "内容为空" }, 400);
       const id = Date.now().toString() + Math.random().toString(36).slice(2, 8);
       await kv.put("c:" + id, JSON.stringify({ t: Date.now(), text }));
-      await pruneOld(kv, env.CLIP_R2);
+      const l = await kv.list({ prefix: "c:", limit: 1000 });
+      if (l.keys.length > 200) {
+        const olds = l.keys.map((k) => k.name).sort().slice(0, l.keys.length - 200);
+        await Promise.all(olds.map((k) => kv.delete(k)));
+      }
       return json({ ok: true });
-    }
-    // ---- 上传文件 ----
-    if (url.pathname === "/api/file" && request.method === "POST") {
-      const r2 = env.CLIP_R2;
-      if (!r2)
-        return json({ ok: false, msg: "还没绑定 R2：到这个 Worker 的 设置 → 绑定 里添加 R2 存储桶，变量名填 CLIP_R2" }, 500);
-      const form = await request.formData().catch(() => null);
-      const file = form && form.get("file");
-      if (!file || typeof file === "string") return json({ ok: false, msg: "没有收到文件" }, 400);
-      const id = Date.now().toString() + Math.random().toString(36).slice(2, 8);
-      const origName = (file.name || "file").toString();
-      const safeName = origName.replace(/[^\w.\-()\[\] ]/g, "_").slice(0, 120) || "file";
-      const r2key = "clip/" + id + "/" + safeName;
-      await r2.put(r2key, file.stream(), { httpMetadata: { contentType: file.type || "application/octet-stream" } });
-      await kv.put(
-        "f:" + id,
-        JSON.stringify({ kind: "file", t: Date.now(), name: origName.slice(0, 200), size: file.size, type: file.type || "", r2key })
-      );
-      await pruneOld(kv, r2);
-      return json({ ok: true });
-    }
-    // ---- 下载文件 ----
-    if (url.pathname === "/api/dl") {
-      const r2 = env.CLIP_R2;
-      const id = url.searchParams.get("id") || "";
-      const meta = id && r2 ? await kv.get("f:" + id, "json") : null;
-      if (!meta) return new Response("Not found", { status: 404 });
-      const obj = await r2.get(meta.r2key);
-      if (!obj) return new Response("Not found", { status: 404 });
-      const headers = new Headers();
-      obj.writeHttpMetadata(headers);
-      headers.set("Content-Disposition", "attachment; filename*=UTF-8''" + encodeURIComponent(meta.name));
-      return new Response(obj.body, { headers });
     }
     // ---- 删除 ----
     if (url.pathname === "/api/clip" && request.method === "DELETE") {
       const id = url.searchParams.get("id") || "";
-      const kind = url.searchParams.get("kind") || "text";
-      if (kind === "file") {
-        const meta = id ? await kv.get("f:" + id, "json") : null;
-        if (meta && meta.r2key && env.CLIP_R2) await env.CLIP_R2.delete(meta.r2key).catch(() => {});
-        if (id) await kv.delete("f:" + id);
-      } else if (id) {
-        await kv.delete("c:" + id);
-      }
+      if (id) await kv.delete("c:" + id);
       return json({ ok: true });
     }
     if (url.pathname === "/") {
